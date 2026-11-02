@@ -1,0 +1,13 @@
+# Build output
+/build/
+/out/
+/vcpkg_installed/
+.vs/
+CMakeUserPresets.json
+
+# Never commit original game data or RE artifacts 
+*.apk
+*.gpr
+*.rep/
+*.so
+/cache/
