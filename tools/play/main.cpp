@@ -13,7 +13,7 @@
 //     --back F           the game's back key (Esc) on frame F (for unattended runs; repeatable)
 //     --vr               play in an OpenXR headset (the window mirrors the left eye); the trigger throws along the
 //                        controller and picks on the menus, the menu / B button is "back"
-//     --gaze             with --vr: aim and pick with the head as the Gear VR original did (any trigger throws)
+//     --gaze             with --vr: start with head aiming, as the Gear VR original did (any trigger throws); A / X, grip or G switches
 //     --realtime         with --frames: step at 60 Hz of real time (unattended runs otherwise go as fast as they
 //                        can, and then the room time does not follow the music)
 //
@@ -116,10 +116,18 @@ struct Options {
     std::vector<Hold> holds;     // --hold FROM:TO: the pointer held at the window's centre over these frames
     std::vector<Hold> powerups;  // --powerup F:TYPE: Level::activatePowerup on frame F (from, to = the type)
     std::vector<int> backs;     // --back: the game's back key on these frames
+    bool launched_bare = false;  // started with no arguments (double-clicked): game.apk beside the program, VR if it can
 };
 
 bool parse_args(int argc, char** argv, Options& o) {
-    if (argc < 2) return false;
+    if (argc < 2) {
+        // Double-clicked: the APK named game.apk next to the program, in VR when a headset is ready, else in a window.
+        const char* base = SDL_GetBasePath();
+        o.apk = std::filesystem::path(base ? base : "") / "game.apk";
+        o.vr = true;
+        o.launched_bare = true;
+        return true;
+    }
     o.apk = argv[1];
     for (int i = 2; i < argc; ++i) {
         const std::string a = argv[i];
@@ -514,7 +522,16 @@ public:
     // What both UI scripts reach (Game, Display, Player, Audio, ResMan).
     ui::UiEnv ui_env() {
         ui::UiEnv env;
-        env.read_text = [this](const std::string& p) { return read_asset(pack_, p); };
+        env.read_text = [this](const std::string& p) {
+            std::optional<std::string> text = read_asset(pack_, p);
+            // Ours: this build's menu has the mode menu but leaves its button undrawn, so turn the button back on.
+            if (text && p == "menu/main.lua") {
+                const std::string off = "--mgDraw(modeButton)";
+                const size_t at = text->find(off);
+                if (at != std::string::npos) text->erase(at, 2);
+            }
+            return text;
+        };
         env.texture_size = [this](const std::string& p, int& w, int& h) {
             const UiTexture* t = ui_texture(p);
             if (!t) return false;
@@ -579,6 +596,12 @@ public:
         while (!arg.empty() && (arg.front() == ' ' || arg.front() == '\t')) arg.erase(0, 1);
         if (word == "level.start") {
             level_name_ = arg.empty() ? "0" : arg.substr(0, arg.find(' '));
+            // In zen mode every level but the credits and moregames ones is the zen level (Game::handleCommand).
+            // This APK ships the zen rooms but none of their segments, and their scripts would loop forever building
+            // from nothing, so without them zen plays the campaign's rooms under its own rules.
+            if (scoring_.player_mode == 3 && level_name_.find("credits") == std::string::npos &&
+                level_name_.find("moregames") == std::string::npos && pack_.contains("segments/zen/narrow/start.xml.gz"))
+                level_name_ = "level:zen";
             requested_ = 3;
         } else if (word == "game.menu") {
             if (!direct_) requested_ = 1;  // (with --room there is no menu: a click restarts instead)
@@ -716,6 +739,9 @@ public:
     void stop_level() {
         level_loaded_ = false;
         if (effects_.out) audio_.handle("stopLevelMusic"), audio_.handle("stopBossLoop");  // Game::stopLevel, Level::stop
+        // Game::stopLevel also unloads the HUD scene. Its boxes leave the modal slots with it: a pause menu left modal
+        // ("menu" from the pause menu) would otherwise block every menu box.
+        hud_.reset();
     }
 
     // The Escape key: the game's "back" (Game::frame sends it to the menu or the HUD script).
@@ -729,6 +755,13 @@ public:
     }
     bool quit_requested() const { return quit_; }
     // The vibration asked for since the last call (0 none).
+    // Ours: aim and pick with the head (the Gear VR original) or with the hand; kept with the records.
+    bool head_aim() const { return records_.head_aim; }
+    void set_head_aim(bool on) {
+        records_.head_aim = on;
+        save_records();
+        rumble_ = std::max(rumble_, 0.6f);  // a buzz to confirm the switch
+    }
     float take_rumble() {
         const float r = rumble_;
         rumble_ = 0.0f;
@@ -1767,13 +1800,17 @@ int run(const Options& opt) {
             std::string error;
             if (!xr->init(error)) {
                 std::fprintf(stderr, "OpenXR: %s\n", error.c_str());
-                return 1;
+                if (!opt.launched_bare) return 1;
+                xr.reset();  // double-clicked with no headset ready: play in the window
             }
+        }
+        if (xr) {
             std::printf("OpenXR runtime: %s\n", xr->runtime_name().c_str());
             game.set_vr(true);
             SDL_GL_SetSwapInterval(0);  // the runtime paces the frames (xrWaitFrame)
         }
         int vr_frames = 0;  // frames handed to the headset
+        if (opt.gaze) game.set_head_aim(true);
         int hand = 1;  // the hand that aims: the one that last pulled its trigger (right to start)
         // A press waits for the next game step: the headset's frames come faster than the 60 Hz steps.
         bool running = true, clicked = false, pause = false, xr_throw = false;
@@ -1787,6 +1824,7 @@ int run(const Options& opt) {
                 if (e.type == SDL_EVENT_QUIT) running = false;
                 if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat) {
                     if (e.key.key == SDLK_ESCAPE) game.back();
+                    if (e.key.key == SDLK_G && xr) game.set_head_aim(!game.head_aim());
                     if (e.key.key == SDLK_S) pause = true;
                     if (e.key.key == SDLK_R && game.direct()) game.restart(opt.balls);
                     if (e.key.key == SDLK_C && xr) xr->recenter();
@@ -1821,8 +1859,10 @@ int run(const Options& opt) {
                     if (xs.throw_pressed[hand]) xr_throw = true;
                     held = xs.throw_down[hand];
                     const play::VrPose& aim = xs.aim[hand];
-                    // --gaze: the head aims and picks, as on the Gear VR (the trigger stands in for its touchpad tap).
-                    const play::VrPose& pointer = opt.gaze ? xs.head : aim;
+                    // Head aiming, as on the Gear VR (the trigger stands in for its touchpad tap), or hand aiming; the
+                    // A / X button (grip on Vive and Windows MR) or G switches.
+                    if (xs.aim_toggle_pressed) game.set_head_aim(!game.head_aim());
+                    const play::VrPose& pointer = game.head_aim() ? xs.head : aim;
                     game.vr_input(xs.head.valid ? xs.head.orientation : phys::Quat{}, pointer.valid ? &pointer : nullptr,
                                   xs.throw_down[hand]);
                     if (xs.back_pressed) game.back();
@@ -1940,10 +1980,19 @@ int main(int argc, char** argv) {
         std::fprintf(stderr, "refusing to write game-derived images inside the source tree\n");
         return 2;
     }
+    // Double-clicked there is no console, so problems go to a message box.
+    auto report = [&](const std::string& text) {
+        std::fprintf(stderr, "%s\n", text.c_str());
+        if (opt.launched_bare) SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "ShatterVR", text.c_str(), nullptr);
+    };
+    if (opt.launched_bare && !std::filesystem::exists(opt.apk)) {
+        report("Put your own Smash Hit Gear VR APK in this folder and name it game.apk:\n\n" + opt.apk.parent_path().string());
+        return 1;
+    }
     try {
         return run(opt);
     } catch (const std::exception& ex) {
-        std::fprintf(stderr, "error: %s\n", ex.what());
+        report(std::string("error: ") + ex.what());
         return 1;
     }
 }

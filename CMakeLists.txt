@@ -4,6 +4,8 @@ project(shattervr LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+# One self-contained ShatterVR.exe: the static C++ runtime and static libraries (the x64-windows-static triplet).
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
 if(MSVC)
   add_compile_options(/W4 /permissive- /utf-8)
@@ -127,10 +129,9 @@ endif()
 add_executable(sh_play tools/play/main.cpp tools/play/xr.cpp)
 target_include_directories(sh_play PRIVATE tools)
 target_link_libraries(sh_play PRIVATE sh_assets sh_render sh_game sh_audio sh_ui SDL3::SDL3 OpenXR::openxr_loader opengl32)
-target_compile_definitions(sh_play PRIVATE SH_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
-add_custom_command(TARGET sh_play POST_BUILD
-  COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_RUNTIME_DLLS:sh_play> $<TARGET_FILE_DIR:sh_play>
-  COMMAND_EXPAND_LISTS)
+# A windowed program (no console) named ShatterVR.exe, with its icon and version details.
+target_sources(sh_play PRIVATE packaging/shattervr.rc)
+set_target_properties(sh_play PROPERTIES OUTPUT_NAME ShatterVR WIN32_EXECUTABLE ON)
 
 
 enable_testing()

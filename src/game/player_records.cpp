@@ -84,6 +84,7 @@ std::string PlayerRecords::serialize() const {
     out << "shattervr-records 1\n";
     out << "current " << current_mode << "\n";
     out << "music " << music << "\nsound " << sound << "\n";
+    out << "aim " << (head_aim ? "head" : "hand") << "\n";
     for (int m = 0; m < kModes; ++m) {
         out << "mode " << m << " score " << best_score[m] << "\n";
         for (int c = 1; c < kCheckpoints; ++c)
@@ -103,6 +104,12 @@ bool PlayerRecords::parse(const std::string& text) {
     while (in >> word) {
         if (word == "music" || word == "sound") {
             if (!(in >> (word == "music" ? r.music : r.sound))) return false;
+            continue;
+        }
+        if (word == "aim") {
+            std::string v;
+            if (!(in >> v)) return false;
+            r.head_aim = v == "head";
             continue;
         }
         if (word == "current") {

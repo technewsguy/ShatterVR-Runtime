@@ -52,7 +52,7 @@ struct XrRig::Impl {
 
     XrActionSet actions = XR_NULL_HANDLE;
     XrAction throw_action = XR_NULL_HANDLE, back_action = XR_NULL_HANDLE, aim_action = XR_NULL_HANDLE;
-    XrAction recenter_action = XR_NULL_HANDLE, haptic_action = XR_NULL_HANDLE;
+    XrAction recenter_action = XR_NULL_HANDLE, haptic_action = XR_NULL_HANDLE, toggle_aim_action = XR_NULL_HANDLE;
     // recenter(): poses are handed out as heading_inv * (p - centre), heading_inv * q.
     phys::Quat heading_inv{0, 0, 0, 1};
     phys::Vec3 centre{0, 0, 0};
@@ -184,6 +184,8 @@ struct XrRig::Impl {
         if (XrResult r = action("aim", "Aim", XR_ACTION_TYPE_POSE_INPUT, aim_action); !ok(r)) return fail(error, "aim action", r);
         if (XrResult r = action("recenter", "Recentre the view", XR_ACTION_TYPE_BOOLEAN_INPUT, recenter_action); !ok(r))
             return fail(error, "recenter action", r);
+        if (XrResult r = action("toggle_aim", "Switch head / hand aiming", XR_ACTION_TYPE_BOOLEAN_INPUT, toggle_aim_action); !ok(r))
+            return fail(error, "aim switch action", r);
         if (XrResult r = action("buzz", "Vibration", XR_ACTION_TYPE_VIBRATION_OUTPUT, haptic_action); !ok(r))
             return fail(error, "vibration action", r);
 
@@ -203,21 +205,25 @@ struct XrRig::Impl {
             {"/interaction_profiles/oculus/touch_controller",
              {{&throw_action, "/user/hand/left/input/trigger/value"}, {&throw_action, "/user/hand/right/input/trigger/value"},
               {&back_action, "/user/hand/left/input/menu/click"}, {&back_action, "/user/hand/right/input/b/click"},
+              {&toggle_aim_action, "/user/hand/left/input/x/click"}, {&toggle_aim_action, "/user/hand/right/input/a/click"},
               {&aim_action, "/user/hand/left/input/aim/pose"}, {&aim_action, "/user/hand/right/input/aim/pose"}},
              "thumbstick/click"},
             {"/interaction_profiles/valve/index_controller",
              {{&throw_action, "/user/hand/left/input/trigger/value"}, {&throw_action, "/user/hand/right/input/trigger/value"},
               {&back_action, "/user/hand/left/input/b/click"}, {&back_action, "/user/hand/right/input/b/click"},
+              {&toggle_aim_action, "/user/hand/left/input/a/click"}, {&toggle_aim_action, "/user/hand/right/input/a/click"},
               {&aim_action, "/user/hand/left/input/aim/pose"}, {&aim_action, "/user/hand/right/input/aim/pose"}},
              "thumbstick/click"},
             {"/interaction_profiles/htc/vive_controller",
              {{&throw_action, "/user/hand/left/input/trigger/click"}, {&throw_action, "/user/hand/right/input/trigger/click"},
               {&back_action, "/user/hand/left/input/menu/click"}, {&back_action, "/user/hand/right/input/menu/click"},
+              {&toggle_aim_action, "/user/hand/left/input/squeeze/click"}, {&toggle_aim_action, "/user/hand/right/input/squeeze/click"},
               {&aim_action, "/user/hand/left/input/aim/pose"}, {&aim_action, "/user/hand/right/input/aim/pose"}},
              "trackpad/click"},
             {"/interaction_profiles/microsoft/motion_controller",
              {{&throw_action, "/user/hand/left/input/trigger/value"}, {&throw_action, "/user/hand/right/input/trigger/value"},
               {&back_action, "/user/hand/left/input/menu/click"}, {&back_action, "/user/hand/right/input/menu/click"},
+              {&toggle_aim_action, "/user/hand/left/input/squeeze/click"}, {&toggle_aim_action, "/user/hand/right/input/squeeze/click"},
               {&aim_action, "/user/hand/left/input/aim/pose"}, {&aim_action, "/user/hand/right/input/aim/pose"}},
              "thumbstick/click"},
         };
@@ -331,6 +337,8 @@ struct XrRig::Impl {
                 if (back && changed) out.back_pressed = true;
                 const bool centre_click = bool_action(recenter_action, h, changed);
                 if (centre_click && changed) out.recenter_pressed = true;
+                const bool toggle = bool_action(toggle_aim_action, h, changed);
+                if (toggle && changed) out.aim_toggle_pressed = true;
                 XrSpaceLocation al{XR_TYPE_SPACE_LOCATION};
                 if (ok(xrLocateSpace(aim_space[h], local, display_time, &al))) {
                     const XrSpaceLocationFlags need = XR_SPACE_LOCATION_ORIENTATION_VALID_BIT | XR_SPACE_LOCATION_POSITION_VALID_BIT;

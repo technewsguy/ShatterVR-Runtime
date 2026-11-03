@@ -33,6 +33,7 @@ struct VrFrame {
     bool throw_down[2] = {};
     bool back_pressed = false;
     bool recenter_pressed = false;  // thumbstick / trackpad click
+    bool aim_toggle_pressed = false;  // A / X (grip on Vive and Windows MR): head or hand aiming
 };
 
 class XrRig {

@@ -392,10 +392,15 @@ void UiScript::draw_visual(Visual& v) {
 void UiScript::draw_ui(Visual& v, const Affine& m, const float color[4]) {
     if (v.texture.empty() || v.tex_w <= 0 || v.tex_h <= 0) return;
     const float tw = static_cast<float>(v.tex_w), th = static_cast<float>(v.tex_h);
-    const float rw = v.region[2] - v.region[0], rh = v.region[3] - v.region[1];
+    // A crop shows that part of the group at the group's position, its rects moving with it (ours: the only cropped
+    // group is the mode button, which this build's script does not draw).
+    const bool cropped = v.crop[0] != 0.0f || v.crop[1] != 0.0f || v.crop[2] != 1.0f || v.crop[3] != 1.0f;
+    const float rx0 = cropped ? v.crop[0] * tw : v.region[0], ry0 = cropped ? v.crop[1] * th : v.region[1];
+    const float rx1 = cropped ? v.crop[2] * tw : v.region[2], ry1 = cropped ? v.crop[3] * th : v.region[3];
+    const float rw = rx1 - rx0, rh = ry1 - ry0;
     float c[4][2];
     box_corners(m, 0.0f, 0.0f, rw, rh, c);
-    const float u0 = v.region[0] / tw, v0 = v.region[1] / th, u1 = v.region[2] / tw, v1 = v.region[3] / th;
+    const float u0 = rx0 / tw, v0 = ry0 / th, u1 = rx1 / tw, v1 = ry1 / th;
     const float uv[4][2] = {{u0, v0}, {u1, v0}, {u1, v1}, {u0, v1}};
     emit(v.texture, false, c, uv, color);
 
@@ -406,8 +411,8 @@ void UiScript::draw_ui(Visual& v, const Affine& m, const float color[4]) {
         Rect& r = v.rects[i];
         if (!r.enabled) continue;
         float p0[2], p1[2];
-        m.apply(r.x0 - v.region[0], r.y0 - v.region[1], p0);
-        m.apply(r.x1 - v.region[0], r.y1 - v.region[1], p1);
+        m.apply(r.x0 - rx0, r.y0 - ry0, p0);
+        m.apply(r.x1 - rx0, r.y1 - ry0, p1);
         const bool hit = p0[0] - kPickMargin <= pointer_.x && pointer_.x <= p1[0] + kPickMargin &&
                          p0[1] - kPickMargin <= pointer_.y && pointer_.y <= p1[1] + kPickMargin;
         bool highlight = r.radio && !v.selected_texture.empty();
@@ -423,7 +428,7 @@ void UiScript::draw_ui(Visual& v, const Affine& m, const float color[4]) {
         }
         if (highlight && !v.selected_texture.empty()) {
             float hc[4][2];
-            box_corners(m, r.x0 - v.region[0], r.y0 - v.region[1], r.x1 - v.region[0], r.y1 - v.region[1], hc);
+            box_corners(m, r.x0 - rx0, r.y0 - ry0, r.x1 - rx0, r.y1 - ry0, hc);
             const float grey[4] = {0.5f, 0.5f, 0.5f, 1.0f};
             if (v.overlay) {
                 const float full[4][2] = {{0, 0}, {1, 0}, {1, 1}, {0, 1}};

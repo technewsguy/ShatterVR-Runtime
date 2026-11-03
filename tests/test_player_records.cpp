@@ -31,8 +31,9 @@ int main() {
         check(s.get("powerups") == "1" && s.get("powerupstaken") == "0", "registerPowerup, an unset stat reads 0");
         check(s.get("peakballs") == "40" && s.get("streak") == "9", "peaks keep the larger value");
         check(s.get("accstreak") == "2" && s.get("accballs") == "30.25" && s.get("rooms") == "2", "registerRoom sums");
+        a.head_aim = true;
         sh::game::PlayerRecords b;
-        check(b.parse(a.serialize()) && b.stats[2].get("accballs") == "30.25" && b.stats[2].get("broken") == "1" &&
+        check(b.parse(a.serialize()) && b.head_aim && b.stats[2].get("accballs") == "30.25" && b.stats[2].get("broken") == "1" &&
                   b.stats[0].get("balls") == "0",
               "stats survive the round trip, per mode");
     }
